@@ -29,10 +29,10 @@ class Game
   end
 
   def self.it
-    @it ||= robots.first
+    @it || robots.first.it!
   end
 
-  def self.it(it)
+  def self.it=(it)
     @it = it
   end
 
@@ -41,18 +41,13 @@ class Game
     if mutex.try_lock
       other, _ = collisions.find { |r,t| r != robot && ((Time.now - t).abs < 1) }
       if other
-        if other.it
+        if other.it?
           robot.it!
-          other.not_it!
-          collisions.clear
-        elsif robot.it
+        elsif robot.it?
           other.it!
-          robot.not_it!
-          collisions.clear
-        else
-          collisions << [robot, Time.now]
         end
-      else 
+        collisions.clear
+      else
         collisions << [robot, Time.now]
       end
       mutex.unlock
@@ -70,19 +65,33 @@ class SpheroRobot < Artoo::Robot
     Game.collision(self)
   end
 
+  def pause!
+    @paused = true
+  end
+
+  def unpause!
+    @paused = false
+  end
+
+  attr_accessor :paused
+
   def it!
     puts "#{self} is it!"
-    @it = true
+    (Game.robots - [self]).each(&:not_it!)
+    Game.it = self
     sphero.set_color(:red)
+    pause!; after(3.seconds) { unpause! }
   end
 
   def not_it!
     puts "#{self} is NOT it!"
-    @it = false
     sphero.set_color(:blue)
+    pause!; after(3.seconds) { unpause! }
   end
 
-  attr_accessor :it
+  def it?
+    Game.it == self
+  end
 
   work do
     on sphero, :collision => :contact
@@ -90,7 +99,9 @@ class SpheroRobot < Artoo::Robot
     @direction = 0
 
     every(3.seconds) do
-      sphero.roll(80, @direction = ((@direction + 180 + rand(45)) % 360))
+      unless paused
+        sphero.roll(80, @direction = ((@direction + 180 + rand(45)) % 360))
+      end
     end
   end
 end
