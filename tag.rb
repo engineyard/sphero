@@ -15,7 +15,6 @@ class Game
   end
 
   def self.start!
-    self.robots.each(&:not_it!)
     self.robots.first.it!
     SpheroRobot.work!(self.robots)
   end
@@ -32,27 +31,36 @@ class Game
     @it || robots.first.it!
   end
 
+  def self.it_mutex; @it_mutex ||= Mutex.new; end
+
   def self.it=(it)
-    @it = it
+    if it_mutex.try_lock
+      (Game.robots - [it]).each(&:not_it!)
+      @it = it
+      it.after(1.second) { it_mutex.unlock }
+    end
   end
 
   def self.collision(robot)
     puts "collision! #{robot.inspect} #{Time.now}"
+    other, _ = collisions.find { |r,t| r != robot && ((Time.now.to_f - t).abs < 0.500) }
     if mutex.try_lock
-      other, _ = collisions.find { |r,t| r != robot && ((Time.now - t).abs < 1) }
       if other
         if other.it?
           robot.it!
+          collisions.clear
         elsif robot.it?
           other.it!
+          collisions.clear
+        else
+          collisions << [robot, Time.now.to_f]
         end
-        collisions.clear
       else
-        collisions << [robot, Time.now]
+        collisions << [robot, Time.now.to_f]
       end
       mutex.unlock
     else
-      collisions << [robot, Time.now]
+      collisions << [robot, Time.now.to_f]
     end
   end
 end
@@ -77,7 +85,6 @@ class SpheroRobot < Artoo::Robot
 
   def it!
     puts "#{self} is it!"
-    (Game.robots - [self]).each(&:not_it!)
     Game.it = self
     sphero.set_color(:red)
     pause!; after(3.seconds) { unpause! }
